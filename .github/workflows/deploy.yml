@@ -18,8 +18,11 @@ jobs:
 
       - name: Authenticate to Salesforce
         run: |
-          echo "${{ secrets.SFDX_AUTH_URL }}" | sf org login sfdx-url --alias arcX --set-default-dev-hub --sfdx-url-stdin
+          echo "${{ secrets.SFDX_AUTH_URL }}" | sf org login sfdx-url --alias arcX --sfdx-url-stdin
+
+      - name: Verify Org Authentication
+        run: sf org list
 
       - name: Deploy to Salesforce
         run: |
-          sf project deploy start --source-dir force-app -u arcX
+          sf project deploy start --source-dir force-app -o arcX
