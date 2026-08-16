@@ -1,0 +1,38 @@
+name: Validate PR (Dry Run)
+
+# Runs on every PR targeting main.
+# Does a check-only deploy (--dry-run) against arcX so bad code never gets merged,
+# but nothing actually gets deployed here.
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
+
+      - name: Authenticate to Salesforce
+        run: |
+          echo "${{ secrets.SFDX_AUTH_URL }}" | sf org login sfdx-url --alias arcX --sfdx-url-stdin
+
+      - name: Verify Org Authentication
+        run: sf org list
+
+      - name: Validate Deployment (Dry Run)
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            -o arcX \
+            --dry-run \
+            --test-level NoTestRun \
+            --wait 30
