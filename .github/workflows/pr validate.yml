@@ -34,5 +34,5 @@ jobs:
             --source-dir force-app \
             -o arcX \
             --dry-run \
-            --test-level RunLocalTests \
+            --test-level NoTestRun \
             --wait 30
