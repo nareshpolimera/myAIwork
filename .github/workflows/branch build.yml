@@ -1,0 +1,41 @@
+name: Build Validation (Any Branch)
+
+# Triggers automatically on push to ANY branch — new or existing.
+# Useful for catching issues early, before a PR is even opened.
+# main is excluded here since that's handled by deploy.yml (manual trigger).
+
+on:
+  push:
+    branches:
+      - '**'
+      - '!main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Show branch info
+        run: |
+          echo "Branch pushed: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+      - name: Install Salesforce CLI
+        run: npm install @salesforce/cli --global
+
+      - name: Authenticate to Salesforce
+        run: |
+          echo "${{ secrets.SFDX_AUTH_URL }}" | sf org login sfdx-url --alias arcX --sfdx-url-stdin
+
+      - name: Validate Deployment (Dry Run)
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            -o arcX \
+            --dry-run \
+            --test-level NoTestRun \
+            --wait 30
