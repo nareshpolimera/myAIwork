@@ -1,3 +1,3 @@
-private class CodeReviewServiceTest {
+public with sharing class CodeReviewServiceTest {
 
 }
