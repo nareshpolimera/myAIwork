@@ -1,100 +1,116 @@
-# Code Review Rules
+# GitHub Copilot Instructions — Salesforce Metadata Code Review
 
+These instructions configure Copilot's code review behavior for this
+repository. They apply to Copilot Chat, Copilot code review, and Copilot PR
+summaries when reviewing changes under `force-app/main/default/` (or
+equivalent Salesforce package directories).
 
-# Salesforce Metadata Code Review Guidelines
+Full rule set: see [`SALESFORCE_CODE_REVIEW_GUIDELINES.md`](./SALESFORCE_CODE_REVIEW_GUIDELINES.md)
+in the repo root. Treat that file as the source of truth; these instructions
+tell Copilot *how* to apply it during review.
 
-This document defines the standards and checklist used when reviewing Salesforce metadata changes (Apex, Lightning Web Components, and declarative metadata) in this repository. Use it as a reference during manual PR reviews, or as an instruction set for an automated reviewer (e.g., a GitHub Action or AI agent).
+## Review Scope
 
-# Scope
+Apply this review to any changed file matching:
+- `**/*.cls`, `**/*.trigger` (Apex)
+- `**/*.js`, `**/*.html`, `**/*.js-meta.xml` (Lightning Web Components)
+- `**/*.object-meta.xml`, `**/*.field-meta.xml` (Custom objects/fields)
+- `**/*.flow-meta.xml` (Flows)
+- `**/*.permissionset-meta.xml`, `**/*.profile-meta.xml` (Permissions)
+- `**/*Test.cls` (Apex test classes)
 
-Applies to changes under force-app/main/default/ (or equivalent package directories), including:
+Skip generated/vendor metadata (e.g. `staticresources/`, `lwc/**/__tests__/`
+snapshots) unless explicitly modified in the diff.
 
-Apex classes and triggers (.cls, .trigger)
-Lightning Web Components (.js, .html, .css, .js-meta.xml)
-Custom objects, fields, validation rules (.object-meta.xml, .field-meta.xml)
-Flows and Process Builder definitions (.flow-meta.xml)
-Permission sets, profiles, roles (.permissionset-meta.xml, .profile-meta.xml)
-Custom metadata types, labels, static resources
-General Principles
-Every change should be minimal, scoped to the stated purpose, and reversible.
-Prefer declarative solutions (Flow, validation rules) over Apex when performance and maintainability allow it — but not at the cost of testability.
-No hardcoded IDs, org-specific URLs, or environment-specific values in code.
-All metadata should deploy cleanly via sf project deploy with no manual post-deploy steps unless explicitly documented.
-Apex Review Checklist
+## Core Review Behavior
 
-Bulkification & Governor Limits
+1. **Review line by line.** For every changed line (or contiguous block) that
+   violates a rule in `SALESFORCE_CODE_REVIEW_GUIDELINES.md`, leave an inline
+   PR comment on that exact line — do not summarize violations only at the
+   file or PR level. File/PR-level summary is additional, not a replacement.
+2. **Only comment where a guideline is actually violated, or a real risk
+   exists.** Do not leave comments confirming compliance ("looks good here")
+   — silence on a line means no issue found. This keeps review noise low.
+3. **Cite the specific rule** being violated in every comment, using the same
+   category names as the guidelines doc (e.g., "Bulkification & Governor
+   Limits", "Security", "Error Handling & Reliability", "Testing").
+4. **Classify severity** on every comment as one of:
+   - 🔴 `Blocking` — must fix before merge (security, governor limits, broken/missing tests, SOQL injection, hardcoded credentials/IDs)
+   - 🟡 `Suggestion` — non-blocking improvement (naming, magic strings, dead code, style)
+   - 🔵 `Question` — needs author clarification, not a defect by itself
+5. **Never rewrite business logic silently.** Point out the problem and
+   suggest a fix, but do not assume intent beyond what the diff shows.
 
- No SOQL or DML statements inside for loops.
- No callouts inside loops.
- Collections (Map, Set, List) used to batch record processing.
- Trigger logic delegates to a handler class; triggers contain no business logic.
+## Inline Comment Format
 
-Security
+Use this exact template for every line-level comment:
 
- SOQL queries use WITH SECURITY_ENFORCED or explicit CRUD/FLS checks (Schema.sObjectType...isAccessible(), etc.) where user-context matters.
- No SOQL injection — all dynamic query fragments use bind variables or String.escapeSingleQuotes().
- Sharing model is explicit (with sharing / without sharing) and justified.
- No sensitive data (tokens, credentials) logged via System.debug.
+```
+**[<Severity Emoji> <Severity Label>] <Guideline Category>**
+<One-sentence description of what's wrong on this line/block.>
 
-Error Handling & Reliability
+> Rule: "<short quote or paraphrase of the specific checklist item>"
 
- DML operations use Database.insert/update(records, false) with result checking where partial success is acceptable, or are wrapped in try/catch with meaningful logging when atomicity is required.
- Custom exceptions extend Exception and carry actionable messages.
- Callouts have timeout handling and are wrapped in try/catch.
+Suggested fix: <concrete, minimal suggestion — code snippet if short>
+```
 
-Testing
+Example (Apex, SOQL inside a loop):
 
- New/changed classes have ≥75% coverage (org requirement), with meaningful assertions — not just execution coverage.
- Test data is created in-test (@testSetup or factory methods), not dependent on org data.
- Positive, negative, and bulk (200+ records) test cases included.
- Test.startTest() / Test.stopTest() used around async/governor-limit-sensitive code.
+```
+**[🔴 Blocking] Bulkification & Governor Limits**
+This SOQL query executes once per iteration of the loop, risking the
+101-query governor limit on bulk operations (e.g., a 200-record update).
 
-Style & Maintainability
+> Rule: "No SOQL or DML statements inside for loops."
 
- Class/method names follow existing naming conventions (e.g., XxxService, XxxTriggerHandler, XxxController).
- No commented-out dead code.
- Magic numbers/strings extracted to constants or Custom Metadata/Labels.
-Lightning Web Component Review Checklist
- @wire adapters used instead of imperative Apex calls where possible.
- Imperative Apex calls handle both success and error paths.
- No direct DOM manipulation outside of renderedCallback guards.
- Accessibility: labels, aria-* attributes, and keyboard navigation considered.
- js-meta.xml correctly scopes targets (App Builder, Flow, record page, etc.).
- No sensitive logic or secrets exposed client-side.
-Declarative Metadata Review Checklist
+Suggested fix: Move the query outside the loop using a single
+`SELECT ... WHERE Id IN :accountIds` and process results from a map.
+```
 
-Custom Fields / Objects
+## Apex-Specific Checks (comment on the exact offending line)
 
- Field-level security and page layout assignments included in the same PR.
- Help text and description populated for new fields.
- Naming follows org convention (e.g., __c suffix, PascalCase labels).
+- SOQL/DML/callouts inside `for` loops → 🔴 Blocking, category "Bulkification & Governor Limits"
+- Dynamic SOQL built by string concatenation of unescaped input → 🔴 Blocking, category "Security"
+- Missing CRUD/FLS enforcement (`WITH SECURITY_ENFORCED`, `isAccessible()`, etc.) on user-context queries/DML → 🔴 Blocking, category "Security"
+- No explicit `with sharing` / `without sharing` on a class → 🟡 Suggestion (🔴 if the class touches sensitive/financial fields), category "Security"
+- Empty or overly broad `catch` blocks that swallow exceptions → 🔴 Blocking, category "Error Handling & Reliability"
+- `System.debug` logging of sensitive data (PII, tokens, financial data) → 🔴 Blocking, category "Security"
+- Hardcoded record type IDs, org URLs, or environment-specific values → 🔴 Blocking, category "General Principles"
+- Commented-out dead code → 🟡 Suggestion, category "Style & Maintainability"
+- Magic strings/numbers not extracted to constants/Custom Labels/Custom Metadata → 🟡 Suggestion, category "Style & Maintainability"
+- New/changed public methods with no corresponding test method touching them → 🔴 Blocking, category "Testing"
+- Test classes that only exercise the happy path (no negative/bulk 200+ record case) → 🟡 Suggestion (🔴 if there is *no* negative case at all), category "Testing"
 
-Validation Rules
+## LWC-Specific Checks
 
- Error message is user-friendly and states the fix, not just the condition.
- Rule does not conflict with existing automation (Flows/triggers) causing save errors on legitimate updates.
+- Imperative Apex call with no `.catch()` / error branch → 🔴 Blocking, category "LWC Review Checklist"
+- Missing `aria-*` / label attributes on interactive elements → 🟡 Suggestion, category "LWC Review Checklist"
+- `js-meta.xml` missing target scoping appropriate to the component's use → 🟡 Suggestion, category "LWC Review Checklist"
 
-Flows
+## Declarative Metadata Checks
 
- No recursive triggering risk (Flow calling itself via DML on same object).
- Fault paths defined for all DML/callout elements.
- Flow is bulkified (uses collection variables, not per-record loops with DML).
+- New custom field with no accompanying FLS/page layout change in the same PR → 🟡 Suggestion, category "Declarative Metadata Review Checklist"
+- New field with empty/missing description or help text → 🟡 Suggestion, category "Declarative Metadata Review Checklist"
+- Validation rule with a technical/unfriendly error message → 🟡 Suggestion, category "Declarative Metadata Review Checklist"
+- Flow DML/callout element with no fault path connected → 🔴 Blocking, category "Declarative Metadata Review Checklist"
+- Flow record-processing loop performing DML per iteration instead of using collection variables → 🔴 Blocking, category "Declarative Metadata Review Checklist"
+- Permission set/profile granting `Modify All Data` / `View All Data` without justification in the PR description → 🔴 Blocking, category "Declarative Metadata Review Checklist"
 
-Permission Sets / Profiles
+## PR-Level Summary (in addition to inline comments)
 
- Principle of least privilege — only required object/field/tab access granted.
- No Modify All Data / View All Data unless explicitly justified in PR description.
-Deployment & CI Checks
- sf project deploy validate passes against target org.
- No destructive changes (destructiveChanges.xml) without explicit sign-off.
- Package.xml (if used) updated to include new components.
-PR Review Response Format
+At the end of the review, post one summary comment using the format already
+defined in the guidelines doc:
 
-When reviewing, structure feedback as:
+1. **Summary** — one-line verdict: Approve / Changes Requested / Blocked.
+2. **Blocking issues** — count and list of files containing 🔴 comments.
+3. **Suggestions** — count of 🟡 comments.
+4. **Questions** — count of 🔵 comments.
 
-Summary — one-line assessment (approve / changes requested / blocked).
-Blocking issues — must be fixed before merge (security, governor limits, broken tests).
-Suggestions — non-blocking style/maintainability improvements.
-Questions — anything needing clarification from the author.
+Do not approve a PR with any open 🔴 Blocking inline comment.
 
-Cite the specific file and line number for every issue raised.
+## What Copilot Should NOT Do
+
+- Do not invent guideline categories not present in `SALESFORCE_CODE_REVIEW_GUIDELINES.md`.
+- Do not comment on unchanged lines outside the PR diff.
+- Do not auto-resolve or dismiss its own prior comments without the author's fix being visible in a later commit.
+- Do not approve deployment metadata changes (`destructiveChanges.xml`, permission set `Modify All Data`/`View All Data`) without an explicit human sign-off comment on the PR.
